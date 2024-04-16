@@ -1,10 +1,15 @@
-# Spring Boot OAuth2 Project : Login with Social Security and Show Google Calendar Events
+# Spring Boot OAuth2 Google Calendar Events
 
 1) Login with Google account.
 
 2) Show today's calendar events.
 
-3) Get today's available free slots.
+3) Insert new event
+
+** UPDATE - DELETE ( NOT COMPLETED)
+
+
+
 
 
 # How to configure calendar API
@@ -33,24 +38,12 @@
 ![Secrete Code 2](https://user-images.githubusercontent.com/16132769/94457452-655aa300-01d6-11eb-88d9-db2986db6a79.png)<br><br>
 
 
-# Application UI
-
 ![login](https://user-images.githubusercontent.com/16132769/94458071-40b2fb00-01d7-11eb-9f95-0293ea809017.png)
+
+
+![image](https://github.com/Adhamalii9/Spring-Boot-OAuth2-Security-Login-with-Google-Account-and-Show-Calender-Events/assets/60005374/1679a99e-8c83-41fb-adef-42226475cbd5)
+
 <br><br>
-
-![login2](https://user-images.githubusercontent.com/16132769/94458072-414b9180-01d7-11eb-91e5-22d5a5ceb624.png)
-<br><br>
-
-![agenda](https://user-images.githubusercontent.com/16132769/94458064-3ee93780-01d7-11eb-80f3-d3d20148ab7c.png)
-<br><br>
-
-![availablr](https://user-images.githubusercontent.com/16132769/94458067-401a6480-01d7-11eb-9f1c-787746220064.png)
-<br><br>
-
-
-# Youtube Video
-
-https://youtu.be/QiBZ7sEcLbs
 
 
  
