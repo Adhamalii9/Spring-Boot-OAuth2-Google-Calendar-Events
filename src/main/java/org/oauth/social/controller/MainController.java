@@ -12,15 +12,17 @@ import java.util.*;
 
 import javax.servlet.http.HttpServletRequest;
 
-import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.services.calendar.Calendar;
 import com.google.api.services.calendar.model.EventAttendee;
 import com.google.api.services.calendar.model.EventDateTime;
 import com.google.api.services.calendar.model.EventReminder;
 import org.oauth.social.model.CalendarObj;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
+import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -41,10 +43,13 @@ import com.google.api.services.calendar.CalendarScopes;
 import com.google.api.services.calendar.Calendar.Events;
 import com.google.api.services.calendar.model.Event;
 
+import static org.springframework.security.oauth2.core.endpoint.OAuth2ParameterNames.CLIENT_ID;
+import static org.springframework.security.oauth2.core.endpoint.OAuth2ParameterNames.CLIENT_SECRET;
+
 @Controller
 public class MainController {
 
-	private static final String APPLICATION_NAME = "";
+	private static final String APPLICATION_NAME = "google-calender";
 	private static HttpTransport httpTransport;
 	private static final JsonFactory JSON_FACTORY = JacksonFactory.getDefaultInstance();
 	private static Calendar client;
@@ -52,7 +57,7 @@ public class MainController {
 	private static SimpleDateFormat sdf = new SimpleDateFormat("hh:mm a");
 
 	GoogleClientSecrets clientSecrets;
-	GoogleAuthorizationCodeFlow flow;
+	static GoogleAuthorizationCodeFlow flow;
 	Credential credential;
 
 	@Value("${google.client.client-id}")
@@ -61,15 +66,21 @@ public class MainController {
 	private String clientSecret;
 	@Value("${google.client.redirectUri}")
 	private String redirectURI;
-	@Value("${google.client.redirectUri.available.slot}")
-	private String redirectURIAvailableSlot;
+
+
+	private static final HttpTransport HTTP_TRANSPORT;
+
+	// Initialize HTTP_TRANSPORT
+	static {
+		try {
+			HTTP_TRANSPORT = GoogleNetHttpTransport.newTrustedTransport();
+		} catch (GeneralSecurityException | IOException e) {
+			throw new RuntimeException("Failed to initialize Google HTTP Transport", e);
+		}
+	}
 
 	private Set<Event> events = new HashSet<>();
 
-	private final int START_HOUR = 8;
-	private final int START_MIN = 00;
-	private final int END_HOUR = 20;
-	private final int END_MIN = 00;
 
 	private static boolean isAuthorised = false;
 
@@ -77,7 +88,8 @@ public class MainController {
 		this.events = events;
 	}
 
-	private String authorize(String redirectURL) throws Exception {
+
+	private String authorize(String redirectURL, HttpServletRequest request) throws Exception {
 		AuthorizationCodeRequestUrl authorizationUrl;
 		if (flow == null) {
 			Details web = new Details();
@@ -92,12 +104,13 @@ public class MainController {
 
 		isAuthorised = true;
 
+
 		return authorizationUrl.build();
 	}
 
 	@RequestMapping(value = "/calendar", method = RequestMethod.GET)
-	public RedirectView googleConnectionStatus(HttpServletRequest request) throws Exception {
-		return new RedirectView(authorize(redirectURI));
+	public RedirectView googleConnectionStatus(String redirectURL, HttpServletRequest request) throws Exception {
+		return new RedirectView(authorize(redirectURI, request));
 	}
 
 	@RequestMapping(value = "/calendar", method = RequestMethod.GET, params = "code")
@@ -154,16 +167,18 @@ public class MainController {
 			credential = flow.createAndStoreCredential(response, "userID");
 			client = new Calendar.Builder(httpTransport, JSON_FACTORY, credential).setApplicationName(APPLICATION_NAME).build();
 			Events events = client.events();
-			eventList = events.list("primary").setSingleEvents(true).setTimeMin(date1).setTimeMax(date2).setOrderBy("startTime").execute();
+			DateTime now = new DateTime(System.currentTimeMillis());
+
+			eventList = events.list("primary").setSingleEvents(true).setTimeMin(now).setOrderBy("startTime").execute();
 
 			List<Event> items = eventList.getItems();
 
-			CalendarObj calendarObj ;
+			CalendarObj calendarObj;
 			List<CalendarObj> calendarObjs = new ArrayList<CalendarObj>();
 
 			for (Event event : items) {
 
-				DateTime startDateTime =event.getStart().getDateTime();
+				DateTime startDateTime = event.getStart().getDateTime();
 				DateTime endDateTime = event.getEnd().getDateTime();
 
 				System.out.println(startDateTime + "  " + endDateTime);
@@ -175,7 +190,7 @@ public class MainController {
 
 
 			}
-			for (CalendarObj ca : calendarObjs){
+			for (CalendarObj ca : calendarObjs) {
 				System.out.println(ca.getTitle());
 			}
 
@@ -186,49 +201,79 @@ public class MainController {
 		}
 	}
 
-	@RequestMapping(value = "/insert" , method = RequestMethod.POST)
-	public void insertEvent() throws GeneralSecurityException, IOException {
-		Event event = new Event()
-				.setSummary("Google I/O 2015")
-				.setLocation("800 Howard St., San Francisco, CA 94103")
-				.setDescription("A chance to hear more about Google's developer products.");
 
-		DateTime startDateTime = new DateTime("2015-05-28T09:00:00-07:00");
-		EventDateTime start = new EventDateTime()
-				.setDateTime(startDateTime)
-				.setTimeZone("America/Los_Angeles");
-		event.setStart(start);
+	@PostMapping("/insertEvent")
+	public String insertEvent() {
+		try {
+			// Check if the Google Authorization Flow has been initialized
+			if (flow == null) {
+				initializeGoogleAuthorizationFlow();
+;
+			}
+			// Perform the OAuth2 authorization (if not already authorized)
+			if (!isAuthorised) {
+				throw new RuntimeException("Google Calendar API not authorized.");
+			}
 
-		DateTime endDateTime = new DateTime("2015-05-28T17:00:00-07:00");
-		EventDateTime end = new EventDateTime()
-				.setDateTime(endDateTime)
-				.setTimeZone("America/Los_Angeles");
-		event.setEnd(end);
+			// Obtain a valid Credential (using a fixed user ID)
+			Credential credential = flow.loadCredential("userID");
 
-		String[] recurrence = new String[] {"RRULE:FREQ=DAILY;COUNT=2"};
-		event.setRecurrence(Arrays.asList(recurrence));
+			// Build the Google Calendar client
+			Calendar calendar = buildCalendarClient(credential);
 
-		EventAttendee[] attendees = new EventAttendee[] {
-				new EventAttendee().setEmail("lpage@example.com"),
-				new EventAttendee().setEmail("sbrin@example.com"),
-		};
-		event.setAttendees(Arrays.asList(attendees));
+			// Create a new event
+			Event event = buildEvent();
 
-		EventReminder[] reminderOverrides = new EventReminder[] {
-				new EventReminder().setMethod("email").setMinutes(24 * 60),
-				new EventReminder().setMethod("popup").setMinutes(10),
-		};
-		Event.Reminders reminders = new Event.Reminders()
-				.setUseDefault(false)
-				.setOverrides(Arrays.asList(reminderOverrides));
-		event.setReminders(reminders);
+			// Insert the event into the primary calendar
+			calendar.events().insert("primary", event).execute();
 
-		String calendarId = "primary";
-		/*TokenResponse response = flow.newTokenRequest(calenderApiCode).setRedirectUri(redirectURL).execute();
-		credential = flow.createAndStoreCredential(response, "userID");
-		client = new Calendar.Builder(httpTransport, JSON_FACTORY, credential).setApplicationName(APPLICATION_NAME).build();
-		Events events = client.events();
-		event = client.events().insert(calendarId, event).execute();
-		System.out.printf("Event created: %s\n", event.getHtmlLink());*/
+			System.out.println("Event inserted successfully!");
+			return "redirect:/calendar"; // Redirect to calendar page after successful insertion
+		} catch (IOException e) {
+			e.printStackTrace();
+			System.out.println("Failed to insert event: " + e.getMessage());
+			return "error"; // Redirect to error page if insertion fails
+		} catch (GeneralSecurityException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+	private void initializeGoogleAuthorizationFlow() throws GeneralSecurityException, IOException {
+		httpTransport = GoogleNetHttpTransport.newTrustedTransport();
+		Details web = new Details();
+		web.setClientId(clientId);
+		web.setClientSecret(clientSecret);
+		clientSecrets = new GoogleClientSecrets().setWeb(web);
+		flow = new GoogleAuthorizationCodeFlow.Builder(
+				httpTransport, JSON_FACTORY, clientSecrets,
+				Collections.singleton(CalendarScopes.CALENDAR))
+				.build();
 	}
+	private Calendar buildCalendarClient(Credential credential) {
+		return new Calendar.Builder(httpTransport, JSON_FACTORY, credential)
+				.setApplicationName(APPLICATION_NAME)
+				.build();
+	}
+	private Event buildEvent() {
+		LocalDateTime startDateTime = LocalDateTime.now();
+		LocalDateTime endDateTime = startDateTime.plusHours(1);
+
+		EventDateTime start = new EventDateTime()
+				.setDateTime(new DateTime(Date.from(startDateTime.atZone(ZoneId.systemDefault()).toInstant())))
+				.setTimeZone("Your Time Zone");
+
+		EventDateTime end = new EventDateTime()
+				.setDateTime(new DateTime(Date.from(endDateTime.atZone(ZoneId.systemDefault()).toInstant())))
+				.setTimeZone("Your Time Zone");
+
+		return new Event()
+				.setSummary("Event Summary")
+				.setDescription("Event Description")
+				.setStart(start)
+				.setEnd(end);
+	}
+
+
+
+
 }
